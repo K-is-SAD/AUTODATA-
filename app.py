@@ -164,80 +164,109 @@ def render_sidebar():
     return agent_type, model, api_key, base_url, enable_plots, smart_summary_enabled, uploaded_files
 
 def handle_file_upload(uploaded_files):
-    """Handle multiple file uploads and concatenate them"""
-    if uploaded_files and len(uploaded_files) > 0:
+    """Handle file upload(s) and prepare SQLite database.
+
+    Supports a single file (backward compatible) or a list of files. When multiple
+    files are provided, they are loaded into a single SQLite DB with one table per CSV.
+    """
+    if uploaded_files is not None:
         try:
-            dataframes = []
-            file_names = []
-            
-            # Process each uploaded file
-            for uploaded_file in uploaded_files:
+            import sqlite3, re
+
+            # If multiple files were uploaded, Streamlit gives a list
+            if isinstance(uploaded_files, list) and len(uploaded_files) > 0:
+                os.makedirs("data/_multi", exist_ok=True)
+
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                combined_db_path = f"data/_multi/multi_{timestamp}.db"
+
+                conn = sqlite3.connect(combined_db_path)
+
+                table_names = []
+                preview_info = []
+
+                for uf in uploaded_files:
+                    df = pd.read_csv(uf)
+                    base = os.path.splitext(uf.name)[0]
+                    # Save raw CSV under its own folder for persistence
+                    os.makedirs(f"data/{base}", exist_ok=True)
+                    df.to_csv(f"data/{base}/{uf.name}", index=False)
+
+                    # Persist aux files
+                    save_data_info(df, uf.name)
+
+                    # Sanitize table name: letters, digits, underscore
+                    tname = re.sub(r"\W+", "_", base)
+                    if tname and tname[0].isdigit():
+                        tname = f"t_{tname}"
+                    if tname == "":
+                        tname = f"table_{len(table_names)+1}"
+
+                    # Write to SQLite
+                    df.to_sql(tname, conn, if_exists='replace', index=False)
+
+                    table_names.append(tname)
+                    preview_info.append((uf.name, df.shape))
+
+                conn.close()
+
+                st.sidebar.success(
+                    f"✅ {len(table_names)} files loaded into one database: {os.path.basename(combined_db_path)}"
+                )
+                for nm, shp in preview_info:
+                    st.sidebar.caption(f"• {nm}: {shp[0]}×{shp[1]}")
+
+                # Store session state
+                st.session_state['data'] = None  # ambiguous with multiple; keep None
+                st.session_state['db_path'] = combined_db_path
+                st.session_state['table_info'] = get_table_info(combined_db_path)
+                st.session_state['current_file'] = f"multiple ({len(table_names)})"
+                st.session_state['tables'] = table_names
+                st.session_state['uploaded_files'] = [uf.name for uf in uploaded_files]
+
+                return True
+
+            # Single-file path (backward compatible)
+            elif uploaded_files is not None:
+                # Handle case where uploaded_files is a list with one file
+                if isinstance(uploaded_files, list) and len(uploaded_files) == 1:
+                    uploaded_file = uploaded_files[0]
+                else:
+                    uploaded_file = uploaded_files
+                
                 # Read the uploaded file
                 data = pd.read_csv(uploaded_file)
-                dataframes.append(data)
-                file_names.append(uploaded_file.name)
-                
-                # Save individual file
+
+                # Save the file
                 file_path = f"data/{uploaded_file.name}"
                 data.to_csv(file_path, index=False)
-                
-                st.sidebar.success(f"✅ {uploaded_file.name} uploaded! Shape: {data.shape}")
-            
-            # Concatenate all dataframes
-            if len(dataframes) > 1:
-                # Check if all dataframes have the same columns
-                first_columns = set(dataframes[0].columns)
-                all_same_columns = all(set(df.columns) == first_columns for df in dataframes)
-                
-                if all_same_columns:
-                    # Concatenate vertically (stack on top of each other)
-                    combined_data = pd.concat(dataframes, ignore_index=True)
-                    st.sidebar.success(f"✅ Files concatenated! Combined shape: {combined_data.shape}")
-                else:
-                    # If columns don't match, try to align them
-                    st.sidebar.warning("⚠️ Files have different columns. Attempting to align...")
-                    # Find common columns
-                    common_columns = set.intersection(*[set(df.columns) for df in dataframes])
-                    if common_columns:
-                        aligned_dataframes = [df[list(common_columns)] for df in dataframes]
-                        combined_data = pd.concat(aligned_dataframes, ignore_index=True)
-                        st.sidebar.success(f"✅ Files aligned and concatenated! Combined shape: {combined_data.shape}")
-                        st.sidebar.info(f"Using {len(common_columns)} common columns: {', '.join(common_columns)}")
-                    else:
-                        st.sidebar.error("❌ No common columns found between files!")
-                        return False
-            else:
-                combined_data = dataframes[0]
-            
-            # Show preview button
-            if st.sidebar.button("📋 View Combined Dataset Preview"):
-                show_data_preview(combined_data, f"Combined ({len(file_names)} files)")
-            
-            # Save combined data info
-            combined_name = f"combined_{'_'.join([name.replace('.csv', '') for name in file_names[:3]])}"
-            if len(file_names) > 3:
-                combined_name += f"_and_{len(file_names)-3}_more"
-            combined_name += ".csv"
-            
-            dtypes_dict, summary_stats = save_data_info(combined_data, combined_name)
-            
-            # Create SQLite database with combined data
-            db_path = create_sqlite_db(combined_data, combined_name)
-            
-            if st.session_state.debug_mode:
-                st.sidebar.success(f"✅ Database created: {db_path}")
-            
-            # Store in session state
-            st.session_state['data'] = combined_data
-            st.session_state['db_path'] = db_path
-            st.session_state['table_info'] = get_table_info(db_path)
-            st.session_state['current_file'] = combined_name
-            st.session_state['uploaded_files'] = file_names
-            
-            return True
-            
+
+                st.sidebar.success(f"✅ File uploaded! Shape: {data.shape}")
+
+                # Show preview button
+                if st.sidebar.button("📋 View Dataset Preview"):
+                    show_data_preview(data, uploaded_file.name)
+
+                # Save data info
+                save_data_info(data, uploaded_file.name)
+
+                # Create SQLite database
+                db_path = create_sqlite_db(data, uploaded_file.name)
+
+                if st.session_state.debug_mode:
+                    st.sidebar.success(f"✅ Database created: {db_path}")
+
+                # Store in session state
+                st.session_state['data'] = data
+                st.session_state['db_path'] = db_path
+                st.session_state['table_info'] = get_table_info(db_path)
+                st.session_state['current_file'] = uploaded_file.name
+                st.session_state['uploaded_files'] = [uploaded_file.name] if isinstance(uploaded_files, list) else [uploaded_file.name]
+
+                return True
+
         except Exception as e:
-            st.sidebar.error(f"❌ Error processing files: {str(e)}")
+            st.sidebar.error(f"❌ Error processing file: {str(e)}")
             if st.session_state.debug_mode:
                 st.sidebar.error(traceback.format_exc())
             return False

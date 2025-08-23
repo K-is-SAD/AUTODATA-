@@ -336,22 +336,27 @@ def get_sql_query_from_llm(agent: LLMAgent, user_question: str, table_info: str)
 You are a SQL expert. Based on the table information below, generate ONLY a SQL query to answer the user's question.
 
 IMPORTANT RULES:
-1. The table name is ALWAYS "data_table" 
-2. To get column names, use: PRAGMA table_info(data_table)
-3. To get column names in a result format, use: SELECT name FROM PRAGMA_TABLE_INFO('data_table')
-4. For data queries, use: SELECT ... FROM data_table
-5. Do NOT query sqlite_master - use the data_table directly
-6. Always use proper SQLite syntax
-7. You query only one time so combine your queries if necessary.
+1. Use the EXACT table names shown in the DATABASE INFORMATION (there may be multiple tables). If only one table exists, use that table.
+2. To get column names for a specific table, use: PRAGMA table_info(<table_name>)
+3. To list column names in a result format, use: SELECT name FROM PRAGMA_TABLE_INFO('<table_name>')
+4. For data queries, use: SELECT ... FROM <table_name> and use JOINs across tables when necessary.
+5. Do NOT query sqlite_master; use PRAGMA and the provided table names instead.
+6. Always use proper SQLite syntax.
+7. You query only one time so combine your logic if necessary.
+8. When multiple tables exist, analyze the POTENTIAL TABLE RELATIONSHIPS section to find suitable JOIN conditions.
+9. Use table aliases (e.g., t1, t2) when joining multiple tables for clarity.
+10. Choose appropriate JOIN types: INNER JOIN for matching records, LEFT JOIN to include all records from the first table.
 
 {table_info}
 
 User Question: {user_question}
 
 Examples:
-- "What are the columns?" → PRAGMA table_info(data_table) OR SELECT name FROM PRAGMA_TABLE_INFO('data_table')
-- "Show me data" → SELECT * FROM data_table LIMIT 10
-- "Count rows" → SELECT COUNT(*) FROM data_table
+- "What are the columns?" → PRAGMA table_info(customers)
+- "Show me data" → SELECT * FROM orders LIMIT 10
+- "Count rows" → SELECT COUNT(*) FROM transactions
+- "Join tables" → SELECT t1.*, t2.name FROM table1 t1 INNER JOIN table2 t2 ON t1.id = t2.id
+- "Multiple tables" → SELECT t1.column1, t2.column2 FROM table1 t1 LEFT JOIN table2 t2 ON t1.common_col = t2.common_col
 
 You must respond with a tool call using the execute_sql_query function. Generate ONLY the tool call, nothing else.
 """

@@ -113,9 +113,34 @@ def main():
     # Check if multiple files were uploaded
     uploaded_files = st.session_state.get('uploaded_files', [])
     current_file = st.session_state.get('current_file', 'Unknown')
+    tables = st.session_state.get('tables', [])
+    
+    # Handle multi-table scenario where data is None
+    if data is None and tables:
+        # For multi-table scenarios, we need to load the first table for analysis
+        try:
+            import sqlite3
+            db_path = st.session_state.get('db_path')
+            if db_path and os.path.exists(db_path):
+                conn = sqlite3.connect(db_path)
+                # Load the first table for comprehensive analysis
+                first_table = tables[0]
+                data = pd.read_sql_query(f"SELECT * FROM {first_table}", conn)
+                conn.close()
+                st.info(f"📊 Using first table '{first_table}' for comprehensive analysis. Multi-table queries are available in the main interface.")
+            else:
+                st.error("❌ Database not found for multi-table analysis.")
+                st.stop()
+        except Exception as e:
+            st.error(f"❌ Error loading data for analysis: {str(e)}")
+            st.stop()
     
     # Create dataset description
-    if len(uploaded_files) > 1:
+    if tables and len(tables) > 1:
+        dataset_desc = f"Multi-table database with {len(tables)} tables: {', '.join(tables[:3])}"
+        if len(tables) > 3:
+            dataset_desc += f" and {len(tables) - 3} more"
+    elif uploaded_files and len(uploaded_files) > 1:
         dataset_desc = f"Combined dataset from {len(uploaded_files)} files: {', '.join(uploaded_files[:3])}"
         if len(uploaded_files) > 3:
             dataset_desc += f" and {len(uploaded_files) - 3} more"

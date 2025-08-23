@@ -82,49 +82,116 @@ def execute_sql_query(db_path: str, query: str):
 
 
 def get_table_info(db_path: str):
-    """Get table schema information"""
+    """Get database schema information for one or more tables.
+
+    Returns a human-readable schema summary including all tables, columns, row counts,
+    and a small sample for each table. This is used to condition LLM prompts.
+    """
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        
-        # Get table schema
-        cursor.execute("PRAGMA table_info(data_table)")
-        columns = cursor.fetchall()
-        
-        # Get sample data
-        cursor.execute("SELECT * FROM data_table LIMIT 3")
-        sample_data = cursor.fetchall()
-        
-        # Get row count
-        cursor.execute("SELECT COUNT(*) FROM data_table")
-        row_count = cursor.fetchone()[0]
-        
-        conn.close()
-        
-        # Format table info with more detail
-        schema_info = f"""DATABASE INFORMATION:
-Table Name: data_table
-Total Rows: {row_count}
 
-COLUMNS:
-"""
-        for col in columns:
-            schema_info += f"  - {col[1]} ({col[2]}) - Column ID: {col[0]}\n"
-        
-        schema_info += "\nSAMPLE DATA (first 3 rows):\n"
-        column_names = [col[1] for col in columns]
-        schema_info += f"Columns: {', '.join(column_names)}\n"
-        for i, row in enumerate(sample_data, 1):
-            schema_info += f"Row {i}: {row}\n"
-        
-        schema_info += """
-QUERY EXAMPLES:
-- To see column names: PRAGMA table_info(data_table)
-- To see all data: SELECT * FROM data_table
-- To count rows: SELECT COUNT(*) FROM data_table
-- To see first 10 rows: SELECT * FROM data_table LIMIT 10
-"""
-        
+        # List tables in the database
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        tables = [row[0] for row in cursor.fetchall()]
+
+        if not tables:
+            conn.close()
+            return "No tables found in database."
+
+        schema_info = "DATABASE INFORMATION:\n\n"
+        schema_info += "AVAILABLE TABLES:\n"
+        for t in tables:
+            schema_info += f"- {t}\n"
+        schema_info += "\n"
+
+        # Detail per table
+        for t in tables:
+            schema_info += f"TABLE: {t}\n"
+            # Columns
+            cursor.execute(f"PRAGMA table_info({t})")
+            cols = cursor.fetchall()
+            # Row count
+            cursor.execute(f"SELECT COUNT(*) FROM {t}")
+            rc = cursor.fetchone()[0]
+            schema_info += f"Total Rows: {rc}\n"
+            schema_info += "COLUMNS:\n"
+            for col in cols:
+                schema_info += f"  - {col[1]} ({col[2]}) - Column ID: {col[0]}\n"
+
+            # Sample rows
+            try:
+                cursor.execute(f"SELECT * FROM {t} LIMIT 3")
+                sample = cursor.fetchall()
+                col_names = [c[1] for c in cols]
+                schema_info += "SAMPLE DATA (first 3 rows):\n"
+                schema_info += f"Columns: {', '.join(col_names)}\n"
+                for i, row in enumerate(sample, 1):
+                    schema_info += f"Row {i}: {row}\n"
+            except Exception:
+                pass
+            schema_info += "\n"
+
+        # Analyze potential relationships between tables
+        if len(tables) > 1:
+            schema_info += "POTENTIAL TABLE RELATIONSHIPS:\n"
+            schema_info += "=" * 50 + "\n"
+            
+            # Get all column names from all tables
+            all_columns = {}
+            for t in tables:
+                cursor.execute(f"PRAGMA table_info({t})")
+                cols = cursor.fetchall()
+                all_columns[t] = [col[1].lower() for col in cols]
+            
+            # Find potential foreign key relationships
+            relationships_found = []
+            for t1 in tables:
+                for t2 in tables:
+                    if t1 != t2:
+                        # Check for common column names that might be foreign keys
+                        cols1 = set(all_columns[t1])
+                        cols2 = set(all_columns[t2])
+                        
+                        # Common patterns for foreign keys
+                        common_patterns = [
+                            'id', 'user_id', 'customer_id', 'order_id', 'product_id',
+                            'category_id', 'location_id', 'date', 'timestamp',
+                            'name', 'code', 'key', 'ref'
+                        ]
+                        
+                        for pattern in common_patterns:
+                            if pattern in cols1 and pattern in cols2:
+                                relationships_found.append(f"{t1}.{pattern} ↔ {t2}.{pattern}")
+                                break
+                        
+                        # Also check for exact column name matches
+                        common_cols = cols1.intersection(cols2)
+                        for col in common_cols:
+                            if col not in ['id', 'name', 'date', 'timestamp']:  # Avoid generic matches
+                                relationships_found.append(f"{t1}.{col} ↔ {t2}.{col}")
+            
+            if relationships_found:
+                schema_info += "Potential JOIN relationships (same column names across tables):\n"
+                for rel in set(relationships_found):  # Remove duplicates
+                    schema_info += f"• {rel}\n"
+                schema_info += "\n"
+            else:
+                schema_info += "No obvious foreign key relationships found.\n"
+                schema_info += "You can still JOIN tables on any matching column names.\n\n"
+
+        # Helpful notes and examples
+        schema_info += (
+            "NOTES:\n"
+            "- Use the table names above exactly as shown.\n"
+            "- To see columns of a table: PRAGMA table_info(<table_name>)\n"
+            "- To preview rows: SELECT * FROM <table_name> LIMIT 10\n"
+            "- Join across tables using SQLite JOIN syntax when columns are related.\n"
+            "- Use LEFT JOIN, INNER JOIN, or CROSS JOIN as appropriate.\n"
+            "- When joining multiple tables, use table aliases for clarity.\n"
+        )
+
+        conn.close()
         return schema_info
     except Exception as e:
         return f"Error getting table info: {str(e)}"
