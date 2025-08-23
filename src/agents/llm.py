@@ -417,6 +417,131 @@ You must respond with a tool call using the execute_sql_query function. Generate
     return ""
 
 
+def get_multiple_sql_queries_from_llm(agent: LLMAgent, user_question: str, table_info: str, max_queries: int = 5) -> List[Dict[str, str]]:
+    """Get multiple SQL queries from LLM for complex analysis questions"""
+    
+    prompt = f"""
+You are a SQL expert. Based on the table information below, analyze the user's question and determine if it requires multiple SQL queries for comprehensive analysis.
+
+IMPORTANT RULES:
+1. The table name is ALWAYS "data_table" 
+2. To get column names, use: PRAGMA table_info(data_table)
+3. To get column names in a result format, use: SELECT name FROM PRAGMA_TABLE_INFO('data_table')
+4. For data queries, use: SELECT ... FROM data_table
+5. Do NOT query sqlite_master - use the data_table directly
+6. Always use proper SQLite syntax
+7. Generate multiple queries if the question requires:
+   - Different aggregations or groupings
+   - Multiple comparisons or filters
+   - Step-by-step analysis
+   - Different time periods or categories
+   - Both summary and detailed views
+
+{table_info}
+
+User Question: {user_question}
+
+Examples of questions that need multiple queries:
+- "Compare sales by region and show top performers" → Query 1: Sales by region, Query 2: Top performers
+- "Analyze customer behavior and demographics" → Query 1: Customer behavior metrics, Query 2: Demographics breakdown
+- "Show monthly trends and year-over-year comparison" → Query 1: Monthly trends, Query 2: YoY comparison
+
+Return a JSON array of queries with descriptions:
+[
+    {{
+        "query": "SELECT region, SUM(sales) as total_sales FROM data_table GROUP BY region ORDER BY total_sales DESC",
+        "description": "Sales by region to identify top performing areas",
+        "step": 1
+    }},
+    {{
+        "query": "SELECT * FROM data_table WHERE region IN (SELECT region FROM data_table GROUP BY region ORDER BY SUM(sales) DESC LIMIT 3)",
+        "description": "Detailed data for top 3 regions",
+        "step": 2
+    }}
+]
+
+Maximum {max_queries} queries. If the question is simple, return only one query.
+Respond ONLY with the JSON array, no other text.
+"""
+    
+    response = agent.generate_response(prompt)
+    print(f"Raw LLM response for multiple queries: {response}")  # Debug print
+    
+    try:
+        # Extract JSON from response
+        response = response.strip()
+        if response.startswith('```json'):
+            response = response[7:-3]
+        elif response.startswith('```'):
+            response = response[3:-3]
+        
+        # Parse the JSON response
+        queries_data = json.loads(response)
+        
+        # Validate and format the queries
+        formatted_queries = []
+        for i, query_info in enumerate(queries_data):
+            if isinstance(query_info, dict) and 'query' in query_info:
+                formatted_queries.append({
+                    'query': query_info['query'],
+                    'description': query_info.get('description', f'Query {i+1}'),
+                    'step': query_info.get('step', i+1)
+                })
+            elif isinstance(query_info, str):
+                # If it's just a string, treat it as a query
+                formatted_queries.append({
+                    'query': query_info,
+                    'description': f'Query {i+1}',
+                    'step': i+1
+                })
+        
+        return formatted_queries
+        
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing error: {e}")
+        # Fallback: try to extract individual queries
+        return extract_individual_queries(response)
+    except Exception as e:
+        print(f"Error processing multiple queries: {e}")
+        # Fallback to single query
+        single_query = get_sql_query_from_llm(agent, user_question, table_info)
+        return [{'query': single_query, 'description': 'Single query analysis', 'step': 1}] if single_query else []
+
+
+def extract_individual_queries(response: str) -> List[Dict[str, str]]:
+    """Extract individual SQL queries from a response when JSON parsing fails"""
+    queries = []
+    
+    # Look for SQL keywords to identify queries
+    sql_keywords = ["SELECT", "PRAGMA", "WITH", "INSERT", "UPDATE", "DELETE"]
+    
+    lines = response.split('\n')
+    current_query = ""
+    
+    for line in lines:
+        line = line.strip()
+        if any(keyword in line.upper() for keyword in sql_keywords):
+            if current_query:
+                queries.append({
+                    'query': current_query.strip(),
+                    'description': f'Query {len(queries)+1}',
+                    'step': len(queries)+1
+                })
+            current_query = line
+        elif current_query and line:
+            current_query += " " + line
+    
+    # Add the last query
+    if current_query:
+        queries.append({
+            'query': current_query.strip(),
+            'description': f'Query {len(queries)+1}',
+            'step': len(queries)+1
+        })
+    
+    return queries
+
+
 if __name__ == "__main__":
     # Example usage
     try:

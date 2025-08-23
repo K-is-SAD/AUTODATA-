@@ -3,8 +3,15 @@ import streamlit as st
 from typing import List, Dict, Optional
 import json
 import numpy as np
-
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import seaborn as sns
+import matplotlib.pyplot as plt
+from scipy import stats
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
 
 class NpEncoder(json.JSONEncoder):
     def default(self, o):
@@ -516,3 +523,600 @@ def display_plots_section(data: pd.DataFrame, user_query: str, llm_agent, query_
     # Show plot configurations for reference
     with st.expander("🔧 Plot Configurations (for developers)"):
         st.json(plot_suggestions)
+
+
+def generate_comprehensive_analysis(data: pd.DataFrame, user_query: str) -> Dict:
+    """
+    Generate comprehensive statistical analysis including univariate, bivariate, and multivariate statistics.
+    
+    Args:
+        data: DataFrame to analyze
+        user_query: User's original query for context
+        
+    Returns:
+        Dictionary containing all analysis results and visualizations
+    """
+    analysis_results = {
+        'univariate': generate_univariate_analysis(data),
+        'bivariate': generate_bivariate_analysis(data),
+        'multivariate': generate_multivariate_analysis(data),
+        'summary_stats': generate_summary_statistics(data),
+        'data_quality': analyze_data_quality(data),
+        'correlation_analysis': generate_correlation_analysis(data)
+    }
+    
+    return analysis_results
+
+
+def generate_univariate_analysis(data: pd.DataFrame) -> Dict:
+    """Generate comprehensive univariate analysis for all columns"""
+    univariate_results = {}
+    
+    for column in data.columns:
+        col_data = data[column].dropna()
+        if len(col_data) == 0:
+            continue
+            
+        col_type = data[column].dtype
+        
+        if pd.api.types.is_numeric_dtype(col_type):
+            # Numerical column analysis
+            univariate_results[column] = analyze_numerical_column(col_data, column)
+        else:
+            # Categorical column analysis
+            univariate_results[column] = analyze_categorical_column(col_data, column)
+    
+    return univariate_results
+
+
+def analyze_numerical_column(col_data: pd.Series, column_name: str) -> Dict:
+    """Analyze a numerical column with comprehensive statistics"""
+    analysis = {
+        'type': 'numerical',
+        'basic_stats': {
+            'count': len(col_data),
+            'mean': col_data.mean(),
+            'median': col_data.median(),
+            'std': col_data.std(),
+            'min': col_data.min(),
+            'max': col_data.max(),
+            'q25': col_data.quantile(0.25),
+            'q75': col_data.quantile(0.75),
+            'iqr': col_data.quantile(0.75) - col_data.quantile(0.25)
+        },
+        'distribution_stats': {
+            'skewness': col_data.skew(),
+            'kurtosis': col_data.kurtosis(),
+            'normality_test': stats.normaltest(col_data)[1] if len(col_data) > 8 else None
+        },
+        'outliers': detect_outliers(col_data),
+        'percentiles': {
+            'p1': col_data.quantile(0.01),
+            'p5': col_data.quantile(0.05),
+            'p95': col_data.quantile(0.95),
+            'p99': col_data.quantile(0.99)
+        }
+    }
+    
+    return analysis
+
+
+def analyze_categorical_column(col_data: pd.Series, column_name: str) -> Dict:
+    """Analyze a categorical column with comprehensive statistics"""
+    value_counts = col_data.value_counts()
+    total_count = len(col_data)
+    
+    analysis = {
+        'type': 'categorical',
+        'basic_stats': {
+            'count': total_count,
+            'unique_values': len(value_counts),
+            'most_common': value_counts.index[0] if len(value_counts) > 0 else None,
+            'most_common_count': value_counts.iloc[0] if len(value_counts) > 0 else 0,
+            'least_common': value_counts.index[-1] if len(value_counts) > 0 else None,
+            'least_common_count': value_counts.iloc[-1] if len(value_counts) > 0 else 0
+        },
+        'distribution': {
+            'value_counts': value_counts.to_dict(),
+            'percentages': (value_counts / total_count * 100).to_dict(),
+            'entropy': calculate_entropy(value_counts)
+        },
+        'cardinality': {
+            'high_cardinality': len(value_counts) > 20,
+            'low_cardinality': len(value_counts) <= 5
+        }
+    }
+    
+    return analysis
+
+
+def detect_outliers(col_data: pd.Series) -> Dict:
+    """Detect outliers using multiple methods"""
+    q1, q3 = col_data.quantile([0.25, 0.75])
+    iqr = q3 - q1
+    
+    # IQR method
+    lower_bound = q1 - 1.5 * iqr
+    upper_bound = q3 + 1.5 * iqr
+    iqr_outliers = col_data[(col_data < lower_bound) | (col_data > upper_bound)]
+    
+    # Z-score method
+    z_scores = np.abs(stats.zscore(col_data))
+    zscore_outliers = col_data[z_scores > 3]
+    
+    return {
+        'iqr_method': {
+            'count': len(iqr_outliers),
+            'percentage': len(iqr_outliers) / len(col_data) * 100,
+            'indices': iqr_outliers.index.tolist()
+        },
+        'zscore_method': {
+            'count': len(zscore_outliers),
+            'percentage': len(zscore_outliers) / len(col_data) * 100,
+            'indices': zscore_outliers.index.tolist()
+        }
+    }
+
+
+def calculate_entropy(value_counts: pd.Series) -> float:
+    """Calculate entropy for categorical data"""
+    probabilities = value_counts / value_counts.sum()
+    entropy = -np.sum(probabilities * np.log2(probabilities))
+    return entropy
+
+
+def generate_bivariate_analysis(data: pd.DataFrame) -> Dict:
+    """Generate bivariate analysis between pairs of columns"""
+    bivariate_results = {}
+    
+    numerical_cols = data.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_cols = data.select_dtypes(exclude=[np.number]).columns.tolist()
+    
+    # Numerical vs Numerical
+    for i, col1 in enumerate(numerical_cols):
+        for col2 in numerical_cols[i+1:]:
+            key = f"{col1}_vs_{col2}"
+            bivariate_results[key] = analyze_numerical_pair(data[col1], data[col2], col1, col2)
+    
+    # Numerical vs Categorical
+    for num_col in numerical_cols:
+        for cat_col in categorical_cols:
+            key = f"{num_col}_by_{cat_col}"
+            bivariate_results[key] = analyze_numerical_categorical_pair(data[num_col], data[cat_col], num_col, cat_col)
+    
+    # Categorical vs Categorical
+    for i, col1 in enumerate(categorical_cols):
+        for col2 in categorical_cols[i+1:]:
+            key = f"{col1}_vs_{col2}"
+            bivariate_results[key] = analyze_categorical_pair(data[col1], data[col2], col1, col2)
+    
+    return bivariate_results
+
+
+def analyze_numerical_pair(col1: pd.Series, col2: pd.Series, name1: str, name2: str) -> Dict:
+    """Analyze relationship between two numerical columns"""
+    # Remove rows with missing values
+    valid_data = pd.DataFrame({name1: col1, name2: col2}).dropna()
+    
+    if len(valid_data) < 2:
+        return {'error': 'Insufficient data'}
+    
+    col1_clean = valid_data[name1]
+    col2_clean = valid_data[name2]
+    
+    # Correlation analysis
+    pearson_corr, pearson_p = stats.pearsonr(col1_clean, col2_clean)
+    spearman_corr, spearman_p = stats.spearmanr(col1_clean, col2_clean)
+    
+    # Linear regression
+    slope, intercept, r_value, p_value, std_err = stats.linregress(col1_clean, col2_clean)
+    
+    return {
+        'type': 'numerical_vs_numerical',
+        'correlation': {
+            'pearson': {'correlation': pearson_corr, 'p_value': pearson_p},
+            'spearman': {'correlation': spearman_corr, 'p_value': spearman_p}
+        },
+        'linear_regression': {
+            'slope': slope,
+            'intercept': intercept,
+            'r_squared': r_value ** 2,
+            'p_value': p_value,
+            'std_error': std_err
+        },
+        'sample_size': len(valid_data)
+    }
+
+
+def analyze_numerical_categorical_pair(num_col: pd.Series, cat_col: pd.Series, num_name: str, cat_name: str) -> Dict:
+    """Analyze relationship between numerical and categorical columns"""
+    # Remove rows with missing values
+    valid_data = pd.DataFrame({num_name: num_col, cat_name: cat_col}).dropna()
+    
+    if len(valid_data) < 2:
+        return {'error': 'Insufficient data'}
+    
+    # Group by categorical column
+    grouped = valid_data.groupby(cat_name)[num_name]
+    
+    # ANOVA test
+    groups = [group for name, group in grouped]
+    if len(groups) >= 2 and all(len(g) > 0 for g in groups):
+        f_stat, p_value = stats.f_oneway(*groups)
+    else:
+        f_stat, p_value = None, None
+    
+    # Summary statistics by group
+    group_stats = grouped.agg(['count', 'mean', 'std', 'min', 'max']).to_dict()
+    
+    return {
+        'type': 'numerical_by_categorical',
+        'anova': {
+            'f_statistic': f_stat,
+            'p_value': p_value
+        },
+        'group_statistics': group_stats,
+        'sample_size': len(valid_data)
+    }
+
+
+def analyze_categorical_pair(col1: pd.Series, col2: pd.Series, name1: str, name2: str) -> Dict:
+    """Analyze relationship between two categorical columns"""
+    # Remove rows with missing values
+    valid_data = pd.DataFrame({name1: col1, name2: col2}).dropna()
+    
+    if len(valid_data) < 2:
+        return {'error': 'Insufficient data'}
+    
+    # Contingency table
+    contingency_table = pd.crosstab(valid_data[name1], valid_data[name2])
+    
+    # Chi-square test
+    chi2, p_value, dof, expected = stats.chi2_contingency(contingency_table)
+    
+    # Cramer's V
+    n = len(valid_data)
+    min_dim = min(contingency_table.shape) - 1
+    cramer_v = np.sqrt(chi2 / (n * min_dim)) if min_dim > 0 else 0
+    
+    return {
+        'type': 'categorical_vs_categorical',
+        'contingency_table': contingency_table.to_dict(),
+        'chi_square': {
+            'chi2_statistic': chi2,
+            'p_value': p_value,
+            'degrees_of_freedom': dof
+        },
+        'cramers_v': cramer_v,
+        'sample_size': len(valid_data)
+    }
+
+
+def generate_multivariate_analysis(data: pd.DataFrame) -> Dict:
+    """Generate multivariate analysis including PCA and clustering"""
+    numerical_data = data.select_dtypes(include=[np.number])
+    
+    if len(numerical_data.columns) < 2:
+        return {'error': 'Insufficient numerical columns for multivariate analysis'}
+    
+    # Remove rows with missing values
+    clean_data = numerical_data.dropna()
+    
+    if len(clean_data) < 3:
+        return {'error': 'Insufficient data for multivariate analysis'}
+    
+    # Standardize the data
+    scaler = StandardScaler()
+    scaled_data = scaler.fit_transform(clean_data)
+    
+    # PCA Analysis
+    pca_results = perform_pca_analysis(scaled_data, clean_data.columns)
+    
+    # Clustering Analysis
+    clustering_results = perform_clustering_analysis(scaled_data, clean_data.columns)
+    
+    return {
+        'pca': pca_results,
+        'clustering': clustering_results,
+        'sample_size': len(clean_data)
+    }
+
+
+def perform_pca_analysis(scaled_data: np.ndarray, feature_names: List[str]) -> Dict:
+    """Perform Principal Component Analysis"""
+    # Determine optimal number of components
+    max_components = min(len(scaled_data), len(feature_names))
+    n_components = min(max_components, 5)  # Limit to 5 components for visualization
+    
+    pca = PCA(n_components=n_components)
+    pca_result = pca.fit_transform(scaled_data)
+    
+    # Explained variance
+    explained_variance_ratio = pca.explained_variance_ratio_
+    cumulative_variance = np.cumsum(explained_variance_ratio)
+    
+    # Component loadings
+    loadings = pd.DataFrame(
+        pca.components_.T,
+        columns=[f'PC{i+1}' for i in range(n_components)],
+        index=feature_names
+    )
+    
+    return {
+        'n_components': n_components,
+        'explained_variance_ratio': explained_variance_ratio.tolist(),
+        'cumulative_variance': cumulative_variance.tolist(),
+        'loadings': loadings.to_dict(),
+        'transformed_data': pca_result.tolist()
+    }
+
+
+def perform_clustering_analysis(scaled_data: np.ndarray, feature_names: List[str]) -> Dict:
+    """Perform K-means clustering analysis"""
+    # Determine optimal number of clusters using elbow method
+    max_clusters = min(10, len(scaled_data) // 10)
+    if max_clusters < 2:
+        return {'error': 'Insufficient data for clustering'}
+    
+    inertias = []
+    for k in range(1, max_clusters + 1):
+        kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+        kmeans.fit(scaled_data)
+        inertias.append(kmeans.inertia_)
+    
+    # Use 3 clusters as default for analysis
+    optimal_k = 3
+    kmeans = KMeans(n_clusters=optimal_k, random_state=42, n_init=10)
+    cluster_labels = kmeans.fit_predict(scaled_data)
+    
+    return {
+        'n_clusters': optimal_k,
+        'inertias': inertias,
+        'cluster_labels': cluster_labels.tolist(),
+        'cluster_centers': kmeans.cluster_centers_.tolist()
+    }
+
+
+def generate_summary_statistics(data: pd.DataFrame) -> Dict:
+    """Generate comprehensive summary statistics"""
+    return {
+        'dataset_info': {
+            'rows': len(data),
+            'columns': len(data.columns),
+            'memory_usage': data.memory_usage(deep=True).sum(),
+            'duplicate_rows': data.duplicated().sum()
+        },
+        'column_types': data.dtypes.value_counts().to_dict(),
+        'missing_values': data.isnull().sum().to_dict(),
+        'missing_percentage': (data.isnull().sum() / len(data) * 100).to_dict()
+    }
+
+
+def analyze_data_quality(data: pd.DataFrame) -> Dict:
+    """Analyze data quality issues"""
+    quality_issues = {
+        'missing_values': {},
+        'duplicates': {},
+        'outliers': {},
+        'inconsistencies': {}
+    }
+    
+    # Missing values analysis
+    missing_counts = data.isnull().sum()
+    for col in data.columns:
+        if missing_counts[col] > 0:
+            quality_issues['missing_values'][col] = {
+                'count': int(missing_counts[col]),
+                'percentage': float(missing_counts[col] / len(data) * 100)
+            }
+    
+    # Duplicate analysis
+    duplicate_rows = data.duplicated().sum()
+    if duplicate_rows > 0:
+        quality_issues['duplicates']['total_duplicates'] = int(duplicate_rows)
+    
+    # Outlier analysis for numerical columns
+    numerical_cols = data.select_dtypes(include=[np.number]).columns
+    for col in numerical_cols:
+        col_data = data[col].dropna()
+        if len(col_data) > 0:
+            outliers = detect_outliers(col_data)
+            if outliers['iqr_method']['count'] > 0:
+                quality_issues['outliers'][col] = outliers['iqr_method']
+    
+    return quality_issues
+
+
+def generate_correlation_analysis(data: pd.DataFrame) -> Dict:
+    """Generate comprehensive correlation analysis"""
+    numerical_data = data.select_dtypes(include=[np.number])
+    
+    if len(numerical_data.columns) < 2:
+        return {'error': 'Insufficient numerical columns for correlation analysis'}
+    
+    # Pearson correlation
+    pearson_corr = numerical_data.corr()
+    
+    # Spearman correlation
+    spearman_corr = numerical_data.corr(method='spearman')
+    
+    # Find strong correlations
+    strong_correlations = []
+    for i in range(len(pearson_corr.columns)):
+        for j in range(i+1, len(pearson_corr.columns)):
+            col1 = pearson_corr.columns[i]
+            col2 = pearson_corr.columns[j]
+            pearson_val = pearson_corr.iloc[i, j]
+            spearman_val = spearman_corr.iloc[i, j]
+            
+            if abs(pearson_val) > 0.7 or abs(spearman_val) > 0.7:
+                strong_correlations.append({
+                    'columns': [col1, col2],
+                    'pearson': pearson_val,
+                    'spearman': spearman_val,
+                    'strength': 'strong' if abs(pearson_val) > 0.8 else 'moderate'
+                })
+    
+    return {
+        'pearson_correlation': pearson_corr.to_dict(),
+        'spearman_correlation': spearman_corr.to_dict(),
+        'strong_correlations': strong_correlations
+    }
+
+
+def create_comprehensive_visualizations(data: pd.DataFrame, analysis_results: Dict) -> List[Dict]:
+    """Create comprehensive visualizations based on analysis results"""
+    visualizations = []
+    
+    # Univariate visualizations
+    univariate_plots = create_univariate_plots(data, analysis_results.get('univariate', {}))
+    visualizations.extend(univariate_plots)
+    
+    # Bivariate visualizations
+    bivariate_plots = create_bivariate_plots(data, analysis_results.get('bivariate', {}))
+    visualizations.extend(bivariate_plots)
+    
+    # Multivariate visualizations
+    multivariate_plots = create_multivariate_plots(data, analysis_results.get('multivariate', {}))
+    visualizations.extend(multivariate_plots)
+    
+    # Correlation visualizations
+    correlation_plots = create_correlation_plots(data, analysis_results.get('correlation_analysis', {}))
+    visualizations.extend(correlation_plots)
+    
+    return visualizations
+
+
+def create_univariate_plots(data: pd.DataFrame, univariate_results: Dict) -> List[Dict]:
+    """Create univariate visualization plots"""
+    plots = []
+    
+    for column, analysis in univariate_results.items():
+        if analysis['type'] == 'numerical':
+            # Histogram with distribution
+            fig = px.histogram(data, x=column, title=f"Distribution of {column}")
+            plots.append({
+                'type': 'histogram',
+                'figure': fig,
+                'title': f"Distribution of {column}",
+                'description': f"Shows the distribution of {column} with mean={analysis['basic_stats']['mean']:.2f}, std={analysis['basic_stats']['std']:.2f}"
+            })
+            
+            # Box plot for outliers
+            fig = px.box(data, y=column, title=f"Box Plot of {column}")
+            plots.append({
+                'type': 'box',
+                'figure': fig,
+                'title': f"Box Plot of {column}",
+                'description': f"Shows outliers and quartiles for {column}"
+            })
+            
+        elif analysis['type'] == 'categorical':
+            # Bar chart
+            value_counts = data[column].value_counts()
+            fig = px.bar(x=value_counts.index, y=value_counts.values, title=f"Frequency of {column}")
+            plots.append({
+                'type': 'bar',
+                'figure': fig,
+                'title': f"Frequency of {column}",
+                'description': f"Shows frequency distribution of {column} categories"
+            })
+    
+    return plots
+
+
+def create_bivariate_plots(data: pd.DataFrame, bivariate_results: Dict) -> List[Dict]:
+    """Create bivariate visualization plots"""
+    plots = []
+    
+    for key, analysis in bivariate_results.items():
+        if analysis.get('type') == 'numerical_vs_numerical':
+            cols = key.split('_vs_')
+            if len(cols) == 2:
+                col1, col2 = cols[0], cols[1]
+                
+                # Scatter plot
+                fig = px.scatter(data, x=col1, y=col2, title=f"{col1} vs {col2}")
+                plots.append({
+                    'type': 'scatter',
+                    'figure': fig,
+                    'title': f"{col1} vs {col2}",
+                    'description': f"Correlation: {analysis['correlation']['pearson']['correlation']:.3f}"
+                })
+                
+        elif analysis.get('type') == 'numerical_by_categorical':
+            cols = key.split('_by_')
+            if len(cols) == 2:
+                num_col, cat_col = cols[0], cols[1]
+                
+                # Box plot
+                fig = px.box(data, x=cat_col, y=num_col, title=f"{num_col} by {cat_col}")
+                plots.append({
+                    'type': 'box',
+                    'figure': fig,
+                    'title': f"{num_col} by {cat_col}",
+                    'description': f"Shows distribution of {num_col} across {cat_col} categories"
+                })
+    
+    return plots
+
+
+def create_multivariate_plots(data: pd.DataFrame, multivariate_results: Dict) -> List[Dict]:
+    """Create multivariate visualization plots"""
+    plots = []
+    
+    if 'pca' in multivariate_results and 'error' not in multivariate_results['pca']:
+        pca_data = multivariate_results['pca']
+        
+        # Scree plot
+        fig = px.line(
+            x=range(1, len(pca_data['explained_variance_ratio']) + 1),
+            y=pca_data['cumulative_variance'],
+            title="PCA Cumulative Explained Variance"
+        )
+        plots.append({
+            'type': 'line',
+            'figure': fig,
+            'title': "PCA Cumulative Explained Variance",
+            'description': "Shows how much variance is explained by each principal component"
+        })
+        
+        # PCA loadings heatmap
+        loadings_df = pd.DataFrame(pca_data['loadings'])
+        fig = px.imshow(
+            loadings_df,
+            title="PCA Component Loadings",
+            aspect="auto"
+        )
+        plots.append({
+            'type': 'heatmap',
+            'figure': fig,
+            'title': "PCA Component Loadings",
+            'description': "Shows how original features contribute to principal components"
+        })
+    
+    return plots
+
+
+def create_correlation_plots(data: pd.DataFrame, correlation_results: Dict) -> List[Dict]:
+    """Create correlation visualization plots"""
+    plots = []
+    
+    if 'pearson_correlation' in correlation_results:
+        corr_matrix = pd.DataFrame(correlation_results['pearson_correlation'])
+        
+        # Correlation heatmap
+        fig = px.imshow(
+            corr_matrix,
+            title="Correlation Matrix",
+            aspect="auto",
+            color_continuous_scale="RdBu"
+        )
+        plots.append({
+            'type': 'heatmap',
+            'figure': fig,
+            'title': "Correlation Matrix",
+            'description': "Shows correlations between all numerical variables"
+        })
+    
+    return plots
