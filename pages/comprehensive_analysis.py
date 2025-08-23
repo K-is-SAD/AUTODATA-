@@ -63,12 +63,13 @@ def main():
         padding: 1.5rem;
         border-radius: 12px;
         margin: 0.8rem 0;
-        color: white;
+        color: black;
         box-shadow: 0 4px 15px rgba(79, 172, 254, 0.2);
         border-left: 4px solid #ffffff;
     }
     .plot-container {
         background: white;
+        color: black;
         padding: 1.5rem;
         border-radius: 15px;
         box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
@@ -76,19 +77,19 @@ def main():
         border: 1px solid #e0e0e0;
     }
     .tab-content {
-        background: rgba(255, 255, 255, 0.95);
         padding: 1rem;
         border-radius: 10px;
         margin: 0.5rem 0;
     }
     .stTabs [data-baseweb="tab-list"] {
+        color: black;
         gap: 8px;
     }
     .stTabs [data-baseweb="tab"] {
         background-color: #f0f2f6;
+        color: black;
         border-radius: 8px 8px 0 0;
         padding: 10px 20px;
-        color: #667eea;
         font-weight: 600;
     }
     .stTabs [aria-selected="true"] {
@@ -278,6 +279,12 @@ def main():
                         st.markdown("#### 📈 Distribution Analysis")
                         for i, plot in enumerate(univariate_plots[:4]):
                             with st.container():
+                                plot['figure'].update_layout(
+                                font=dict(color="black"),
+                                xaxis=dict(title_font=dict(color="black"), tickfont=dict(color="black")),
+                                yaxis=dict(title_font=dict(color="black"), tickfont=dict(color="black")),
+                                legend=dict(font=dict(color="black"))
+                                )
                                 st.markdown(f"""
                                 <div class="plot-container">
                                     <h5>{plot['title']}</h5>
@@ -293,6 +300,12 @@ def main():
                         st.markdown("#### 🔗 Relationship Analysis")
                         for i, plot in enumerate(bivariate_plots[:4]):
                             with st.container():
+                                plot['figure'].update_layout(
+                                font=dict(color="black"),
+                                xaxis=dict(title_font=dict(color="black"), tickfont=dict(color="black")),
+                                yaxis=dict(title_font=dict(color="black"), tickfont=dict(color="black")),
+                                legend=dict(font=dict(color="black"))
+                                )
                                 st.markdown(f"""
                                 <div class="plot-container">
                                     <h5>{plot['title']}</h5>
@@ -308,6 +321,12 @@ def main():
                         st.markdown("#### 🌐 Multidimensional Analysis")
                         for i, plot in enumerate(multivariate_plots[:2]):
                             with st.container():
+                                plot['figure'].update_layout(
+                                font=dict(color="black"),
+                                xaxis=dict(title_font=dict(color="black"), tickfont=dict(color="black")),
+                                yaxis=dict(title_font=dict(color="black"), tickfont=dict(color="black")),
+                                legend=dict(font=dict(color="black"))
+                                )
                                 st.markdown(f"""
                                 <div class="plot-container">
                                     <h5>{plot['title']}</h5>
@@ -323,6 +342,12 @@ def main():
                         st.markdown("#### 📊 Correlation Matrix")
                         for i, plot in enumerate(correlation_plots):
                             with st.container():
+                                plot['figure'].update_layout(
+                                font=dict(color="black"),
+                                xaxis=dict(title_font=dict(color="black"), tickfont=dict(color="black")),
+                                yaxis=dict(title_font=dict(color="black"), tickfont=dict(color="black")),
+                                legend=dict(font=dict(color="black"))
+                                )
                                 st.markdown(f"""
                                 <div class="plot-container">
                                     <h5>{plot['title']}</h5>
@@ -374,15 +399,15 @@ def main():
                     else:
                         st.write("No strong correlations found.")
             
-            # Add download button for analysis results
-            st.markdown("### 💾 Export Analysis")
-            analysis_json = json.dumps(analysis_results, indent=2, default=str)
-            st.download_button(
-                label="📥 Download Analysis Results (JSON)",
-                data=analysis_json,
-                file_name=f"comprehensive_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
-            )
+            # # Add download button for analysis results
+            # st.markdown("### 💾 Export Analysis")
+            # analysis_json = json.dumps(analysis_results, indent=2, default=str)
+            # st.download_button(
+            #     label="📥 Download Analysis Results (JSON)",
+            #     data=analysis_json,
+            #     file_name=f"comprehensive_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            #     mime="application/json"
+            # )
             
             # Add back button
             st.markdown("---")

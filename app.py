@@ -266,7 +266,7 @@ def handle_file_upload(uploaded_files):
                 return True
 
         except Exception as e:
-            st.sidebar.error(f"❌ Error processing file: {str(e)}")
+            # st.sidebar.error(f"❌ Error processing file: {str(e)}")
             if st.session_state.debug_mode:
                 st.sidebar.error(traceback.format_exc())
             return False
