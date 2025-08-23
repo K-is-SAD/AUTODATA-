@@ -965,45 +965,143 @@ def generate_correlation_analysis(data: pd.DataFrame) -> Dict:
 
 
 def create_comprehensive_visualizations(data: pd.DataFrame, analysis_results: Dict) -> List[Dict]:
-    """Create comprehensive visualizations based on analysis results"""
+    """Create comprehensive visualizations based on analysis results with enhanced styling"""
     visualizations = []
     
-    # Univariate visualizations
+    # Enhanced color schemes for dynamic plots
+    color_schemes = {
+        'primary': ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe'],
+        'warm': ['#ff9a9e', '#fecfef', '#fecfef', '#fad0c4', '#ffd1ff', '#ffecd2'],
+        'cool': ['#a8edea', '#fed6e3', '#ffecd2', '#fcb69f', '#ff9a9e', '#fecfef'],
+        'gradient': ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe']
+    }
+    
+    # Univariate visualizations with enhanced styling
     univariate_plots = create_univariate_plots(data, analysis_results.get('univariate', {}))
+    for plot in univariate_plots:
+        if plot['figure']:
+            # Apply enhanced styling
+            plot['figure'].update_layout(
+                title_font_size=20,
+                title_font_color='#667eea',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(size=12),
+                margin=dict(l=50, r=50, t=80, b=50)
+            )
+            # Add colorful markers and lines
+            if hasattr(plot['figure'], 'data') and plot['figure'].data:
+                for trace in plot['figure'].data:
+                    if hasattr(trace, 'marker'):
+                        trace.marker.color = color_schemes['primary'][0]
+                    if hasattr(trace, 'line'):
+                        trace.line.color = color_schemes['primary'][0]
     visualizations.extend(univariate_plots)
     
-    # Bivariate visualizations
+    # Bivariate visualizations with enhanced styling
     bivariate_plots = create_bivariate_plots(data, analysis_results.get('bivariate', {}))
+    for plot in bivariate_plots:
+        if plot['figure']:
+            # Apply enhanced styling
+            plot['figure'].update_layout(
+                title_font_size=20,
+                title_font_color='#f093fb',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(size=12),
+                margin=dict(l=50, r=50, t=80, b=50)
+            )
+            # Add colorful markers
+            if hasattr(plot['figure'], 'data') and plot['figure'].data:
+                for trace in plot['figure'].data:
+                    if hasattr(trace, 'marker'):
+                        trace.marker.color = color_schemes['warm'][0]
     visualizations.extend(bivariate_plots)
     
-    # Multivariate visualizations
+    # Multivariate visualizations with enhanced styling
     multivariate_plots = create_multivariate_plots(data, analysis_results.get('multivariate', {}))
+    for plot in multivariate_plots:
+        if plot['figure']:
+            # Apply enhanced styling
+            plot['figure'].update_layout(
+                title_font_size=20,
+                title_font_color='#4facfe',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(size=12),
+                margin=dict(l=50, r=50, t=80, b=50)
+            )
     visualizations.extend(multivariate_plots)
     
-    # Correlation visualizations
+    # Correlation visualizations with enhanced styling
     correlation_plots = create_correlation_plots(data, analysis_results.get('correlation_analysis', {}))
+    for plot in correlation_plots:
+        if plot['figure']:
+            # Apply enhanced styling
+            plot['figure'].update_layout(
+                title_font_size=20,
+                title_font_color='#f5576c',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(size=12),
+                margin=dict(l=50, r=50, t=80, b=50)
+            )
     visualizations.extend(correlation_plots)
     
     return visualizations
 
 
 def create_univariate_plots(data: pd.DataFrame, univariate_results: Dict) -> List[Dict]:
-    """Create univariate visualization plots"""
+    """Create univariate visualization plots with enhanced styling"""
     plots = []
+    
+    # Enhanced color schemes
+    color_schemes = {
+        'primary': ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe'],
+        'warm': ['#ff9a9e', '#fecfef', '#fecfef', '#fad0c4', '#ffd1ff', '#ffecd2'],
+        'cool': ['#a8edea', '#fed6e3', '#ffecd2', '#fcb69f', '#ff9a9e', '#fecfef']
+    }
     
     for column, analysis in univariate_results.items():
         if analysis['type'] == 'numerical':
-            # Histogram with distribution
-            fig = px.histogram(data, x=column, title=f"Distribution of {column}")
+            # Enhanced histogram with gradient colors
+            fig = px.histogram(
+                data, 
+                x=column, 
+                title=f"📊 Distribution of {column}",
+                nbins=30,
+                color_discrete_sequence=color_schemes['primary']
+            )
+            fig.update_layout(
+                title_font_size=20,
+                title_font_color='#667eea',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(size=12),
+                margin=dict(l=50, r=50, t=80, b=50)
+            )
             plots.append({
                 'type': 'histogram',
                 'figure': fig,
                 'title': f"Distribution of {column}",
-                'description': f"Shows the distribution of {column} with mean={analysis['basic_stats']['mean']:.2f}, std={analysis['basic_stats']['std']:.2f}"
+                'description': f"Shows the distribution of {column} with enhanced styling"
             })
             
-            # Box plot for outliers
-            fig = px.box(data, y=column, title=f"Box Plot of {column}")
+            # Enhanced box plot with warm colors
+            fig = px.box(
+                data, 
+                y=column, 
+                title=f"📦 Box Plot of {column}",
+                color_discrete_sequence=color_schemes['warm']
+            )
+            fig.update_layout(
+                title_font_size=20,
+                title_font_color='#f093fb',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(size=12),
+                margin=dict(l=50, r=50, t=80, b=50)
+            )
             plots.append({
                 'type': 'box',
                 'figure': fig,
@@ -1012,9 +1110,22 @@ def create_univariate_plots(data: pd.DataFrame, univariate_results: Dict) -> Lis
             })
             
         elif analysis['type'] == 'categorical':
-            # Bar chart
+            # Enhanced bar chart with cool colors
             value_counts = data[column].value_counts()
-            fig = px.bar(x=value_counts.index, y=value_counts.values, title=f"Frequency of {column}")
+            fig = px.bar(
+                x=value_counts.index, 
+                y=value_counts.values, 
+                title=f"📊 Frequency of {column}",
+                color_discrete_sequence=color_schemes['cool']
+            )
+            fig.update_layout(
+                title_font_size=20,
+                title_font_color='#4facfe',
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                font=dict(size=12),
+                margin=dict(l=50, r=50, t=80, b=50)
+            )
             plots.append({
                 'type': 'bar',
                 'figure': fig,
@@ -1026,8 +1137,14 @@ def create_univariate_plots(data: pd.DataFrame, univariate_results: Dict) -> Lis
 
 
 def create_bivariate_plots(data: pd.DataFrame, bivariate_results: Dict) -> List[Dict]:
-    """Create bivariate visualization plots"""
+    """Create bivariate visualization plots with enhanced styling"""
     plots = []
+    
+    # Enhanced color schemes
+    color_schemes = {
+        'primary': ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe'],
+        'warm': ['#ff9a9e', '#fecfef', '#fecfef', '#fad0c4', '#ffd1ff', '#ffecd2']
+    }
     
     for key, analysis in bivariate_results.items():
         if analysis.get('type') == 'numerical_vs_numerical':
@@ -1035,8 +1152,22 @@ def create_bivariate_plots(data: pd.DataFrame, bivariate_results: Dict) -> List[
             if len(cols) == 2:
                 col1, col2 = cols[0], cols[1]
                 
-                # Scatter plot
-                fig = px.scatter(data, x=col1, y=col2, title=f"{col1} vs {col2}")
+                # Enhanced scatter plot with gradient colors
+                fig = px.scatter(
+                    data, 
+                    x=col1, 
+                    y=col2, 
+                    title=f"🔗 {col1} vs {col2}",
+                    color_discrete_sequence=color_schemes['primary']
+                )
+                fig.update_layout(
+                    title_font_size=20,
+                    title_font_color='#667eea',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(size=12),
+                    margin=dict(l=50, r=50, t=80, b=50)
+                )
                 plots.append({
                     'type': 'scatter',
                     'figure': fig,
@@ -1049,8 +1180,22 @@ def create_bivariate_plots(data: pd.DataFrame, bivariate_results: Dict) -> List[
             if len(cols) == 2:
                 num_col, cat_col = cols[0], cols[1]
                 
-                # Box plot
-                fig = px.box(data, x=cat_col, y=num_col, title=f"{num_col} by {cat_col}")
+                # Enhanced box plot with warm colors
+                fig = px.box(
+                    data, 
+                    x=cat_col, 
+                    y=num_col, 
+                    title=f"📦 {num_col} by {cat_col}",
+                    color_discrete_sequence=color_schemes['warm']
+                )
+                fig.update_layout(
+                    title_font_size=20,
+                    title_font_color='#f093fb',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    font=dict(size=12),
+                    margin=dict(l=50, r=50, t=80, b=50)
+                )
                 plots.append({
                     'type': 'box',
                     'figure': fig,
@@ -1099,18 +1244,27 @@ def create_multivariate_plots(data: pd.DataFrame, multivariate_results: Dict) ->
 
 
 def create_correlation_plots(data: pd.DataFrame, correlation_results: Dict) -> List[Dict]:
-    """Create correlation visualization plots"""
+    """Create correlation visualization plots with enhanced styling"""
     plots = []
     
     if 'pearson_correlation' in correlation_results:
         corr_matrix = pd.DataFrame(correlation_results['pearson_correlation'])
         
-        # Correlation heatmap
+        # Enhanced correlation heatmap with RdBu color scale
         fig = px.imshow(
             corr_matrix,
-            title="Correlation Matrix",
+            title="🔥 Correlation Matrix",
             aspect="auto",
-            color_continuous_scale="RdBu"
+            color_continuous_scale="RdBu",
+            text_auto=True
+        )
+        fig.update_layout(
+            title_font_size=20,
+            title_font_color='#f5576c',
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)',
+            font=dict(size=12),
+            margin=dict(l=50, r=50, t=80, b=50)
         )
         plots.append({
             'type': 'heatmap',

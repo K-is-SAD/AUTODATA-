@@ -7,6 +7,8 @@ import subprocess
 import logging
 import json
 from colorama import Fore
+from typing import Dict, List
+import plotly.express as px
 try:
     from src.agents.sql_agent import SQLAgent
     from src.utils.data_utils import (get_table_info, execute_sql_query,
@@ -145,10 +147,11 @@ def render_sidebar():
     
     # File upload in sidebar
     st.sidebar.header("📁 Upload Dataset")
-    uploaded_file = st.sidebar.file_uploader(
-        "Choose a CSV file",
+    uploaded_files = st.sidebar.file_uploader(
+        "Choose CSV files",
         type=['csv'],
-        help="Upload a CSV file to analyze"
+        accept_multiple_files=True,
+        help="Upload one or more CSV files to analyze. Multiple files will be concatenated."
     )
     
     # Show available files
@@ -158,44 +161,83 @@ def render_sidebar():
         for file in files:
             st.sidebar.text(f"• {file}")
     
-    return agent_type, model, api_key, base_url, enable_plots, smart_summary_enabled, uploaded_file
+    return agent_type, model, api_key, base_url, enable_plots, smart_summary_enabled, uploaded_files
 
-def handle_file_upload(uploaded_file):
-    """Handle file upload and show preview dialog"""
-    if uploaded_file is not None:
+def handle_file_upload(uploaded_files):
+    """Handle multiple file uploads and concatenate them"""
+    if uploaded_files and len(uploaded_files) > 0:
         try:
-            # Read the uploaded file
-            data = pd.read_csv(uploaded_file)
+            dataframes = []
+            file_names = []
             
-            # Save the file
-            file_path = f"data/{uploaded_file.name}"
-            data.to_csv(file_path, index=False)
+            # Process each uploaded file
+            for uploaded_file in uploaded_files:
+                # Read the uploaded file
+                data = pd.read_csv(uploaded_file)
+                dataframes.append(data)
+                file_names.append(uploaded_file.name)
+                
+                # Save individual file
+                file_path = f"data/{uploaded_file.name}"
+                data.to_csv(file_path, index=False)
+                
+                st.sidebar.success(f"✅ {uploaded_file.name} uploaded! Shape: {data.shape}")
             
-            st.sidebar.success(f"✅ File uploaded! Shape: {data.shape}")
+            # Concatenate all dataframes
+            if len(dataframes) > 1:
+                # Check if all dataframes have the same columns
+                first_columns = set(dataframes[0].columns)
+                all_same_columns = all(set(df.columns) == first_columns for df in dataframes)
+                
+                if all_same_columns:
+                    # Concatenate vertically (stack on top of each other)
+                    combined_data = pd.concat(dataframes, ignore_index=True)
+                    st.sidebar.success(f"✅ Files concatenated! Combined shape: {combined_data.shape}")
+                else:
+                    # If columns don't match, try to align them
+                    st.sidebar.warning("⚠️ Files have different columns. Attempting to align...")
+                    # Find common columns
+                    common_columns = set.intersection(*[set(df.columns) for df in dataframes])
+                    if common_columns:
+                        aligned_dataframes = [df[list(common_columns)] for df in dataframes]
+                        combined_data = pd.concat(aligned_dataframes, ignore_index=True)
+                        st.sidebar.success(f"✅ Files aligned and concatenated! Combined shape: {combined_data.shape}")
+                        st.sidebar.info(f"Using {len(common_columns)} common columns: {', '.join(common_columns)}")
+                    else:
+                        st.sidebar.error("❌ No common columns found between files!")
+                        return False
+            else:
+                combined_data = dataframes[0]
             
             # Show preview button
-            if st.sidebar.button("📋 View Dataset Preview"):
-                show_data_preview(data, uploaded_file.name)
+            if st.sidebar.button("📋 View Combined Dataset Preview"):
+                show_data_preview(combined_data, f"Combined ({len(file_names)} files)")
             
-            # Save data info
-            dtypes_dict, summary_stats = save_data_info(data, uploaded_file.name)
+            # Save combined data info
+            combined_name = f"combined_{'_'.join([name.replace('.csv', '') for name in file_names[:3]])}"
+            if len(file_names) > 3:
+                combined_name += f"_and_{len(file_names)-3}_more"
+            combined_name += ".csv"
             
-            # Create SQLite database
-            db_path = create_sqlite_db(data, uploaded_file.name)
+            dtypes_dict, summary_stats = save_data_info(combined_data, combined_name)
+            
+            # Create SQLite database with combined data
+            db_path = create_sqlite_db(combined_data, combined_name)
             
             if st.session_state.debug_mode:
                 st.sidebar.success(f"✅ Database created: {db_path}")
             
             # Store in session state
-            st.session_state['data'] = data
+            st.session_state['data'] = combined_data
             st.session_state['db_path'] = db_path
             st.session_state['table_info'] = get_table_info(db_path)
-            st.session_state['current_file'] = uploaded_file.name
+            st.session_state['current_file'] = combined_name
+            st.session_state['uploaded_files'] = file_names
             
             return True
             
         except Exception as e:
-            st.sidebar.error(f"❌ Error processing file: {str(e)}")
+            st.sidebar.error(f"❌ Error processing files: {str(e)}")
             if st.session_state.debug_mode:
                 st.sidebar.error(traceback.format_exc())
             return False
@@ -327,202 +369,15 @@ def render_query_panel(agent_type, model, api_key, base_url, enable_plots, smart
         
     # Execute comprehensive analysis
         if comprehensive_analysis and user_question:
-            with st.spinner("🔬 Performing comprehensive statistical analysis..."):
-                try:
-                    # Get the current data
-                    current_data = st.session_state.get('data')
-                    if current_data is None:
-                        st.error("❌ No data available for analysis. Please upload a dataset first.")
-                        return
-                    
-                    # Generate comprehensive analysis
-                    from src.plotting.plot_generator import generate_comprehensive_analysis, create_comprehensive_visualizations
-                    
-                    analysis_results = generate_comprehensive_analysis(current_data, user_question)
-                    
-                    # Create visualizations
-                    visualizations = create_comprehensive_visualizations(current_data, analysis_results)
-                    
-                    # Display analysis results
-                    st.subheader("📊 Comprehensive Statistical Analysis")
-                    
-                    # Summary statistics
-                    with st.expander("📈 Summary Statistics", expanded=True):
-                        summary_stats = analysis_results.get('summary_stats', {})
-                        if 'dataset_info' in summary_stats:
-                            info = summary_stats['dataset_info']
-                            col1, col2, col3, col4 = st.columns(4)
-                            with col1:
-                                st.metric("Rows", info.get('rows', 0))
-                            with col2:
-                                st.metric("Columns", info.get('columns', 0))
-                            with col3:
-                                st.metric("Memory (MB)", f"{info.get('memory_usage', 0) / 1024 / 1024:.2f}")
-                            with col4:
-                                st.metric("Duplicates", info.get('duplicate_rows', 0))
-                    
-                    # Data quality analysis
-                    with st.expander("🔍 Data Quality Analysis"):
-                        quality_issues = analysis_results.get('data_quality', {})
-                        if quality_issues.get('missing_values'):
-                            st.write("**Missing Values:**")
-                            for col, info in quality_issues['missing_values'].items():
-                                st.write(f"• {col}: {info['count']} ({info['percentage']:.1f}%)")
-                        
-                        if quality_issues.get('outliers'):
-                            st.write("**Outliers Detected:**")
-                            for col, info in quality_issues['outliers'].items():
-                                st.write(f"• {col}: {info['count']} ({info['percentage']:.1f}%)")
-                    
-                    # Univariate analysis
-                    with st.expander("📊 Univariate Analysis"):
-                        univariate_results = analysis_results.get('univariate', {})
-                        for col, analysis in univariate_results.items():
-                            if analysis['type'] == 'numerical':
-                                stats = analysis['basic_stats']
-                                st.write(f"**{col}** (Numerical)")
-                                col1, col2, col3, col4 = st.columns(4)
-                                with col1:
-                                    st.metric("Mean", f"{stats['mean']:.2f}")
-                                with col2:
-                                    st.metric("Median", f"{stats['median']:.2f}")
-                                with col3:
-                                    st.metric("Std Dev", f"{stats['std']:.2f}")
-                                with col4:
-                                    st.metric("IQR", f"{stats['iqr']:.2f}")
-                            else:
-                                stats = analysis['basic_stats']
-                                st.write(f"**{col}** (Categorical)")
-                                st.write(f"• Unique values: {stats['unique_values']}")
-                                st.write(f"• Most common: {stats['most_common']} ({stats['most_common_count']} times)")
-                    
-                    # Correlation analysis
-                    with st.expander("🔗 Correlation Analysis"):
-                        corr_analysis = analysis_results.get('correlation_analysis', {})
-                        if 'strong_correlations' in corr_analysis:
-                            strong_corrs = corr_analysis['strong_correlations']
-                            if strong_corrs:
-                                st.write("**Strong Correlations (>0.7):**")
-                                for corr in strong_corrs:
-                                    cols = corr['columns']
-                                    pearson = corr['pearson']
-                                    st.write(f"• {cols[0]} ↔ {cols[1]}: r={pearson:.3f} ({corr['strength']})")
-                            else:
-                                st.write("No strong correlations found.")
-                    
-                    # Display visualizations
-                    st.subheader("📈 Statistical Visualizations")
-                    
-                    # Create tabs for different types of visualizations
-                    if visualizations:
-                        tab_names = ["Univariate", "Bivariate", "Multivariate", "Correlations"]
-                        tabs = st.tabs(tab_names)
-                        
-                        univariate_plots = [v for v in visualizations if v['type'] in ['histogram', 'box', 'bar']]
-                        bivariate_plots = [v for v in visualizations if v['type'] == 'scatter']
-                        multivariate_plots = [v for v in visualizations if v['type'] in ['line', 'heatmap']]
-                        correlation_plots = [v for v in visualizations if 'correlation' in v['title'].lower()]
-                        
-                        with tabs[0]:
-                            if univariate_plots:
-                                for plot in univariate_plots[:4]:  # Limit to 4 plots
-                                    st.plotly_chart(plot['figure'], use_container_width=True)
-                                    st.caption(plot['description'])
-                            else:
-                                st.info("No univariate plots available.")
-                        
-                        with tabs[1]:
-                            if bivariate_plots:
-                                for plot in bivariate_plots[:4]:  # Limit to 4 plots
-                                    st.plotly_chart(plot['figure'], use_container_width=True)
-                                    st.caption(plot['description'])
-                            else:
-                                st.info("No bivariate plots available.")
-                        
-                        with tabs[2]:
-                            if multivariate_plots:
-                                for plot in multivariate_plots[:2]:  # Limit to 2 plots
-                                    st.plotly_chart(plot['figure'], use_container_width=True)
-                                    st.caption(plot['description'])
-                            else:
-                                st.info("No multivariate plots available.")
-                        
-                        with tabs[3]:
-                            if correlation_plots:
-                                for plot in correlation_plots:
-                                    st.plotly_chart(plot['figure'], use_container_width=True)
-                                    st.caption(plot['description'])
-                            else:
-                                st.info("No correlation plots available.")
-                    
-                    # Add to chat history
-                    add_to_chat_history(
-                        user_question, 
-                        "Comprehensive Analysis", 
-                        current_data.head(10),  # Show sample of data
-                        timestamp=datetime.now()
-                    )
-                    
-                    # Generate insights
-                    if smart_summary_enabled:
-                        try:
-                            if 'insight_agent' not in st.session_state:
-                                st.session_state.insight_agent = InsightAgent(agent)
-                            
-                            insight_summary = st.session_state.insight_agent.analyze_query_result(
-                                user_question, current_data
-                            )
-                            
-                            # Create summary with analysis highlights
-                            summary_prompt = f"""
-Based on the comprehensive analysis performed, provide:
-1. A concise 2-3 sentence summary of key findings
-2. 3 specific follow-up analysis suggestions
-
-ANALYSIS RESULTS:
-- Dataset: {analysis_results['summary_stats']['dataset_info']['rows']} rows, {analysis_results['summary_stats']['dataset_info']['columns']} columns
-- Missing values: {len(analysis_results['data_quality'].get('missing_values', {}))} columns affected
-- Strong correlations: {len(analysis_results['correlation_analysis'].get('strong_correlations', []))} found
-- Outliers detected: {len(analysis_results['data_quality'].get('outliers', {}))} columns
-
-USER QUESTION: {user_question}
-
-Respond in JSON format:
-{{"summary": "your insight", "suggestions": ["suggestion1", "suggestion2", "suggestion3"]}}
-"""
-                            
-                            llm_resp = agent.query(summary_prompt).strip()
-                            if llm_resp.startswith('```json'):
-                                llm_resp = llm_resp[7:-3]
-                            elif llm_resp.startswith('```'):
-                                llm_resp = llm_resp[3:-3]
-                            
-                            try:
-                                payload = json.loads(llm_resp)
-                                st.session_state.summaries.append({
-                                    'timestamp': datetime.now(),
-                                    'question': user_question,
-                                    'summary': payload.get('summary', ''),
-                                    'suggestions': payload.get('suggestions', [])
-                                })
-                            except:
-                                st.session_state.summaries.append({
-                                    'timestamp': datetime.now(),
-                                    'question': user_question,
-                                    'summary': f"Comprehensive analysis completed. Found {len(analysis_results['correlation_analysis'].get('strong_correlations', []))} strong correlations and analyzed {len(analysis_results['univariate'])} variables.",
-                                    'suggestions': ["Explore specific correlations", "Analyze outliers", "Investigate missing values"]
-                                })
-                                
-                        except Exception as se:
-                            if st.session_state.debug_mode:
-                                st.warning(f"Summary generation failed: {se}")
-                    
-                    st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"❌ Error during comprehensive analysis: {str(e)}")
-                    if st.session_state.debug_mode:
-                        st.error(traceback.format_exc())
+            # Store agent configuration and query in session state
+            st.session_state['agent_type'] = agent_type
+            st.session_state['model'] = model
+            st.session_state['api_key'] = api_key
+            st.session_state['base_url'] = base_url
+            st.session_state['comprehensive_analysis_query'] = user_question
+            
+            # Redirect to comprehensive analysis page
+            st.switch_page("pages/comprehensive_analysis")
         
     # Execute new query
         if execute_query and user_question:
@@ -835,6 +690,9 @@ Provide a concise summary and 3 follow-up suggestions in JSON format:
         if st.session_state.debug_mode:
             st.error(traceback.format_exc())
 
+
+
+
 def main():
     st.set_page_config(
         page_title="Auto Data Analysis with LLM",
@@ -849,10 +707,10 @@ def main():
     st.title("📊 Auto Data Analysis with LLM")
     
     # Render sidebar
-    agent_type, model, api_key, base_url, enable_plots, smart_summary_enabled, uploaded_file = render_sidebar()
+    agent_type, model, api_key, base_url, enable_plots, smart_summary_enabled, uploaded_files = render_sidebar()
     
     # Handle file upload
-    handle_file_upload(uploaded_file)
+    handle_file_upload(uploaded_files)
     
     # Main layout: plots on left, queries on right
     col1, col2 = st.columns([1, 1])
